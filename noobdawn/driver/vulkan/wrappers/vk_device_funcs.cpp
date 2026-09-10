@@ -5421,6 +5421,9 @@ VkResult WrappedVulkan::vkCreateDevice(VkPhysicalDevice physicalDevice,
     m_DebugManager = new VulkanDebugManager(this);
   }
 
+  // Register only once the device and capture resources are ready. Some applications create
+  // additional instances solely to enumerate adapters, without ever creating a device.
+  NoobDawn::Inst().AddVulkanBridgeCapturer(this);
   FirstFrame();
 
   return ret;
@@ -5430,6 +5433,15 @@ void WrappedVulkan::vkDestroyDevice(VkDevice device, const VkAllocationCallbacks
 {
   if(device == VK_NULL_HANDLE)
     return;
+
+  // Finish bridge captures before destroying the queues and internal capture resources.
+  EndVulkanBridgeCaptures();
+  if(m_VulkanBridgeOwner != NULL)
+  {
+    EndFrameCapture(DeviceOwnedWindow(NULL, NULL));
+    m_VulkanBridgeOwner = NULL;
+  }
+  NoobDawn::Inst().RemoveVulkanBridgeCapturer(this);
 
   if(m_MemoryFreeThread)
   {

@@ -2340,6 +2340,49 @@ void NoobDawn::RemoveDeviceFrameCapturer(void *dev)
   m_DeviceFrameCapturers.erase(dev);
 }
 
+void NoobDawn::AddVulkanBridgeCapturer(IFrameCapturer *cap)
+{
+  if(IsReplayApp())
+    return;
+
+  if(cap == NULL)
+  {
+    NBDERR("Invalid Vulkan bridge frame capturer");
+    return;
+  }
+
+  SCOPED_LOCK(m_CapturerListLock);
+  if(!m_VulkanBridgeCapturers.contains(cap))
+  {
+    m_VulkanBridgeCapturers.push_back(cap);
+    NBDLOG("Vulkan bridge: registered capturer %p (%zu total)", cap,
+           m_VulkanBridgeCapturers.size());
+  }
+  else
+  {
+    NBDWARN("Vulkan bridge: duplicate registration for capturer %p (%zu total)", cap,
+            m_VulkanBridgeCapturers.size());
+  }
+}
+
+void NoobDawn::RemoveVulkanBridgeCapturer(IFrameCapturer *cap)
+{
+  if(IsReplayApp() || cap == NULL)
+    return;
+
+  SCOPED_LOCK(m_CapturerListLock);
+  size_t countBefore = m_VulkanBridgeCapturers.size();
+  m_VulkanBridgeCapturers.removeOne(cap);
+  NBDLOG("Vulkan bridge: removed capturer %p (%zu -> %zu total)", cap, countBefore,
+         m_VulkanBridgeCapturers.size());
+}
+
+nbdarray<IFrameCapturer *> NoobDawn::GetVulkanBridgeCapturers()
+{
+  SCOPED_LOCK(m_CapturerListLock);
+  return m_VulkanBridgeCapturers;
+}
+
 void NoobDawn::AddFrameCapturer(DeviceOwnedWindow devWnd, IFrameCapturer *cap)
 {
   if(IsReplayApp())

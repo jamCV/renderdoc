@@ -309,6 +309,8 @@ private:
   CaptureState m_State;
   bool m_AppControlledCapture = false;
   bool m_FirstFrameCapture = false;
+  // Only the capturer which started a bridge capture may finish it.
+  WrappedVulkan *m_VulkanBridgeOwner = NULL;
 
   int32_t m_ReuseEnabled = 1;
 
@@ -1180,6 +1182,8 @@ private:
 
   void AdvanceFrame();
   void Present(DeviceOwnedWindow devWnd);
+  void StartVulkanBridgeCaptures();
+  void EndVulkanBridgeCaptures();
 
   void HandleFrameMarkers(const char *marker, VkCommandBuffer commandBuffer);
   void HandleFrameMarkers(const char *marker, VkQueue queue);

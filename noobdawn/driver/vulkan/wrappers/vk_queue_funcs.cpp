@@ -1441,6 +1441,7 @@ VkResult WrappedVulkan::vkQueueSubmit(VkQueue queue, uint32_t submitCount,
   if(beginCapture)
   {
     NoobDawn::Inst().StartFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
+    StartVulkanBridgeCaptures();
   }
 
   {
@@ -1495,6 +1496,7 @@ VkResult WrappedVulkan::vkQueueSubmit(VkQueue queue, uint32_t submitCount,
   if(endCapture)
   {
     NoobDawn::Inst().EndFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
+    EndVulkanBridgeCaptures();
   }
 
   if(present)
@@ -1632,6 +1634,7 @@ VkResult WrappedVulkan::vkQueueSubmit2(VkQueue queue, uint32_t submitCount,
   if(beginCapture)
   {
     NoobDawn::Inst().StartFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
+    StartVulkanBridgeCaptures();
   }
 
   {
@@ -1686,6 +1689,7 @@ VkResult WrappedVulkan::vkQueueSubmit2(VkQueue queue, uint32_t submitCount,
   if(endCapture)
   {
     NoobDawn::Inst().EndFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
+    EndVulkanBridgeCaptures();
   }
 
   if(present)

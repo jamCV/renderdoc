@@ -48,3 +48,8 @@ qnoobdawn/3rdparty/pyside
 .DS_Store
 plugins-*/
 __pycache__
+
+# Local capture analysis and generated build logs
+/analysis/
+/tools/frame-research/
+/build_*.log

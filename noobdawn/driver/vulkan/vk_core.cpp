@@ -251,6 +251,8 @@ WrappedVulkan::~WrappedVulkan()
   if(VkMarkerRegion::vk == this)
     VkMarkerRegion::vk = NULL;
 
+  NoobDawn::Inst().RemoveVulkanBridgeCapturer(this);
+
   for(auto it = m_Annotations.begin(); it != m_Annotations.end(); ++it)
     delete it->second;
   for(SDObject *o : m_EventAnnotations)
@@ -2698,6 +2700,7 @@ void WrappedVulkan::FirstFrame()
   if(IsBackgroundCapturing(m_State) && NoobDawn::Inst().ShouldTriggerCapture(0))
   {
     NoobDawn::Inst().StartFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
+    StartVulkanBridgeCaptures();
 
     m_FirstFrameCapture = true;
 
@@ -2764,6 +2767,11 @@ void WrappedVulkan::StartFrameCapture(DeviceOwnedWindow devWnd)
   m_CaptureFailure = false;
 
   NBDLOG("Starting capture");
+  m_VulkanBridgeOwner = NULL;
+  NBDLOG("Vulkan bridge: capturer %p starting capture for device %p, window %p (%zu bridge "
+         "capturers registered)",
+         this, devWnd.device, devWnd.windowHandle,
+         NoobDawn::Inst().GetVulkanBridgeCapturers().size());
 
   if(m_Queue == VK_NULL_HANDLE && m_QueueFamilyIdx != ~0U)
   {
@@ -2887,7 +2895,15 @@ void WrappedVulkan::StartFrameCapture(DeviceOwnedWindow devWnd)
 bool WrappedVulkan::EndFrameCapture(DeviceOwnedWindow devWnd)
 {
   if(!IsActiveCapturing(m_State))
+  {
+    NBDDEBUG("Vulkan bridge: capturer %p received end-capture for device %p, window %p while "
+             "not capturing",
+             this, devWnd.device, devWnd.windowHandle);
     return true;
+  }
+
+  NBDLOG("Vulkan bridge: capturer %p ending capture for device %p, window %p", this,
+         devWnd.device, devWnd.windowHandle);
 
   if(m_CaptureFailure)
   {
@@ -3574,7 +3590,16 @@ void WrappedVulkan::Present(DeviceOwnedWindow devWnd)
     // first present to *any* window, even inactive, terminates frame 0
     if(m_FirstFrameCapture && IsActiveCapturing(m_State))
     {
+      nbdarray<IFrameCapturer *> bridgeCapturers = NoobDawn::Inst().GetVulkanBridgeCapturers();
+      size_t peerCapturers = bridgeCapturers.size();
+      if(bridgeCapturers.contains(this))
+        peerCapturers--;
+      NBDLOG("Vulkan bridge: capturer %p ended frame 0 from an inactive window; synchronising "
+             "%zu peer capturers",
+             this, peerCapturers);
       NoobDawn::Inst().EndFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
+      EndVulkanBridgeCaptures();
+
       m_FirstFrameCapture = false;
     }
 
@@ -3582,14 +3607,67 @@ void WrappedVulkan::Present(DeviceOwnedWindow devWnd)
   }
 
   if(IsActiveCapturing(m_State) && !m_AppControlledCapture)
+  {
+    nbdarray<IFrameCapturer *> bridgeCapturers = NoobDawn::Inst().GetVulkanBridgeCapturers();
+    size_t peerCapturers = bridgeCapturers.size();
+    if(bridgeCapturers.contains(this))
+      peerCapturers--;
+    NBDLOG("Vulkan bridge: capturer %p received active Present for device %p, window %p; "
+           "synchronising %zu peer capturers",
+           this, devWnd.device, devWnd.windowHandle, peerCapturers);
     NoobDawn::Inst().EndFrameCapture(devWnd);
+    EndVulkanBridgeCaptures();
+  }
 
   if(NoobDawn::Inst().ShouldTriggerCapture(m_FrameCounter) && IsBackgroundCapturing(m_State))
   {
+    NBDLOG("Vulkan bridge: capturer %p received capture trigger at frame %u for device %p, "
+           "window %p",
+           this, m_FrameCounter, devWnd.device, devWnd.windowHandle);
     NoobDawn::Inst().StartFrameCapture(devWnd);
+    StartVulkanBridgeCaptures();
 
     m_AppControlledCapture = false;
     m_CapturedFrames.back().frameNumber = m_FrameCounter;
+  }
+}
+
+void WrappedVulkan::StartVulkanBridgeCaptures()
+{
+  if(!IsActiveCapturing(m_State) || m_VulkanBridgeOwner != NULL)
+    return;
+
+  nbdarray<IFrameCapturer *> bridgeCapturers = NoobDawn::Inst().GetVulkanBridgeCapturers();
+
+  for(IFrameCapturer *cap : bridgeCapturers)
+  {
+    WrappedVulkan *peer = static_cast<WrappedVulkan *>(cap);
+    if(peer != this && IsBackgroundCapturing(peer->m_State) && peer->m_Device != VK_NULL_HANDLE)
+    {
+      NBDLOG("Vulkan bridge: starting peer capturer %p from capturer %p", cap, this);
+      cap->StartFrameCapture(DeviceOwnedWindow(NULL, NULL));
+      if(IsActiveCapturing(peer->m_State))
+      {
+        peer->m_VulkanBridgeOwner = this;
+        peer->m_CapturedFrames.back().frameNumber = m_FrameCounter;
+      }
+    }
+  }
+}
+
+void WrappedVulkan::EndVulkanBridgeCaptures()
+{
+  nbdarray<IFrameCapturer *> bridgeCapturers = NoobDawn::Inst().GetVulkanBridgeCapturers();
+
+  for(IFrameCapturer *cap : bridgeCapturers)
+  {
+    WrappedVulkan *peer = static_cast<WrappedVulkan *>(cap);
+    if(peer != this && peer->m_VulkanBridgeOwner == this)
+    {
+      NBDLOG("Vulkan bridge: ending peer capturer %p from capturer %p", cap, this);
+      cap->EndFrameCapture(DeviceOwnedWindow(NULL, NULL));
+      peer->m_VulkanBridgeOwner = NULL;
+    }
   }
 }
 
@@ -3623,10 +3701,12 @@ void WrappedVulkan::HandleFrameMarkers(const char *marker, VkQueue queue)
   if(strstr(marker, "capture-marker,begin_capture") != NULL)
   {
     NoobDawn::Inst().StartFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
+    StartVulkanBridgeCaptures();
   }
   if(strstr(marker, "capture-marker,end_capture") != NULL)
   {
     NoobDawn::Inst().EndFrameCapture(DeviceOwnedWindow(LayerDisp(m_Instance), NULL));
+    EndVulkanBridgeCaptures();
   }
 }
 
